@@ -1,4 +1,4 @@
-=== Subscribers Only ===
+=== WP Cache Block ===
 Contributors: Michael Pretty
 Donate link: http://voceconnect.com/
 Tags: caching, block level, performance
