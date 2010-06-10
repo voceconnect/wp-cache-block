@@ -2,7 +2,7 @@
 /*
 Plugin Name: WP Cache Block
 Description: Adds ability to globally cache certain segments of code.
-Version: 1.0
+Version: 0.1.0
 Author: Michael Pretty (voce connect)
 
 *******************************************************************
@@ -47,32 +47,6 @@ class WP_Cache_Block
 	}
 
 	/**
-	 * Static method to start a cache block segment.  Sample usage:
-	 * if(WP_Cache_Block::StartBlock()) :
-	 *   #code to cache here
-	 * endif; WP_Cache_Block:EndBlock();
-	 *
-	 *
-	 * @param string $key If no key is provided, one will be created from the a hash of the_wp_query vars and the current stack trace
-	 * @param bool set to true if content is page specific
-	 * @param int seconds to cache the content
-	 * @return bool true if the code is not cached and should be executed, false if the cache block already exists
-	 */
-	public static function StartBlock($key = '', $unique = true, $expires = 300)
-	{
-		return self::GetInstance()->start_block($key, $unique, $expires);
-	}
-
-	/**
-	 * Static method to close a cache block.  Every call to StartBlock should be closed.
-	 *
-	 */
-	public static function EndBlock()
-	{
-		self::GetInstance()->end_block();
-	}
-
-	/**
 	 * Constructor method.  Kept private to maintain singleton instance.
 	 *
 	 */
@@ -82,43 +56,84 @@ class WP_Cache_Block
 		$this->set_cache_flag();
 	}
 
+	public function init() {
+		if(is_admin()) {
+			add_action('admin_menu', array($this, 'admin_menu'));
+		}
+	}
+	
+	public function admin_menu() {
+		$hook = add_options_page('WP Block Cache', 'WP Block Cache', 'manage_options', 'wp-cache-block', array($this, 'options_page'));
+		add_action('load-'.$hook, array($this, 'on_load_options_page'));
+	}
+	
+	public function on_load_options_page() {
+		if(isset($_POST['cache_block_nonce']) && wp_verify_nonce($_POST['cache_block_nonce'], 'flush_cache')) {
+			$this->clear_cache();
+			wp_redirect(admin_url('options-general.php?page=wp-cache-block&cleared=1'));
+			die();
+		}
+	}
+	
+	public function options_page() {
+		if(isset($_GET['cleared'])) : ?>
+			<div id="message" class="updated">Cache has been cleared.</div>
+		<?php endif; ?>
+		<div class="wrap">
+			<h2>WP Cache Block</h2>
+			<form action="<?php echo admin_url('options-general.php?page=wp-cache-block');?>" method="POST">
+				<?php wp_nonce_field('flush_cache', 'cache_block_nonce') ?>
+				<input type="submit" name="submit" value="Flush Cache" />
+			</form>
+		</div>
+		<?php
+	}
+	
+	
 	/**
 	 * Method to start a cache block segment.  The static method should be used in most situations.
 	 *
 	 * Sample usage:
-	 * if(WP_Cache_Block::StartBlock()) :
+	 * if(wp_cacheblock_start('block_name') :
 	 *   #code to cache here
-	 * endif; WP_Cache_Block:EndBlock();
+	 * endif; wp_cacheblock_end();
 	 *
 	 * @param string $key If no key is provided, one will be created from the a hash of the_wp_query vars and the current stack trace
 	 * @param bool set to true if content is page specific.  Will add unique hash to cache key.
 	 * @param int seconds to cache the content
 	 * @return bool true if the code is not cached and should be executed, false if the cache block already exists
 	 */
-	public function start_block($key, $unique, $expires)
+	public function start_block($blockname, $args = array())
 	{
-		$filter_key = $key;
-		if(empty($key) || $unique)
-		{
-			$wp_query = $GLOBALS['wp_the_query'];
-			if(!empty($key)) $key.= ':';
-			$key .= wp_hash(serialize(debug_backtrace()) . serialize($wp_query->query_vars));
-		}
-
-		$block_data = array('key'=>$key, 'use_cache' => true, 'output' => false);
-		if(!empty($filter_key))
-		{
-			$block_data['use_cache'] = apply_filters('cache_block_start_'.$filter_key, $block_data['use_cache']);
-		}
-		if($block_data['use_cache'])
-		{
-			$block_data['output'] = wp_cache_get($key, $this->cache_flag);
-			if($block_data['output'] === null)
-			{
-				$block_data['output'] = false;
+		$defaults = array(
+			'unique_key' => '',
+			'key_builders' => array(),
+			'expires' => 300
+		);
+		
+		$args = wp_parse_args($args, $defaults);
+		
+		if(!empty($args['unique_key'])) {
+			$unique_key = 'cb_'.$blockname.'_'.$args['unique_key'];
+		} elseif(is_array($args['key_builders']) && count($args['key_builders']) > 0) {
+			$keys = array();
+			foreach ($args['key_builders'] as $key_builder){
+				$keys[] = $key_builder->get_key_string();
 			}
+			$unique_key = substr(md5(join('',$keys)), 0, 150);
+			
+		} else {
+			$unique_key = '';
 		}
-		$block_data['expires'] = $expires;
+		$key = $this->cache_flag. $unique_key;
+		$block_data = array('key'=>$key, 'output' => false);
+
+		$block_data['output'] = get_transient($key);
+		if($block_data['output'] === null)
+		{
+			$block_data['output'] = false;
+		}
+		$block_data['expires'] = $args['expires'];
 
 		array_push($this->output_stack, $block_data);
 
@@ -150,17 +165,14 @@ class WP_Cache_Block
 		if($output === false)
 		{
 			$output = ob_get_contents();
-			ob_end_flush();
-			if($block_data['use_cache'])
-			{
-				wp_cache_set($key, $output, $this->cache_flag, $expires);
-			}
+			ob_end_flush(); //go ahead and output the content
+			set_transient($key, $output, $expires);
 		}
 		else
 		{
-			if (self::CACHE_BLOCK_DEBUG)	echo "<!-- WP_Cache_Block from Key {$key} -->\n";
+			if (self::CACHE_BLOCK_DEBUG)	echo "<!-- WP_Cache_Block from Key {$key} --> \n";
 			echo $output;
-			if (self::CACHE_BLOCK_DEBUG) echo "<!-- End WP_Cache_Block from Key {$key} -->\n";
+			if (self::CACHE_BLOCK_DEBUG) echo "<!-- End WP_Cache_Block from Key {$key} --> \n";
 		}
 		return true;
 	}
@@ -177,7 +189,7 @@ class WP_Cache_Block
 	{
 		if($this->cache_flag !== false)
 		{
-			delete_option($this->cache_flag);
+			delete_option(self::CACHE_FLAG_PREFIX);
 		}
 		$this->set_cache_flag();
 	}
@@ -197,74 +209,111 @@ class WP_Cache_Block
 		}
 	}
 }
+add_action('init', array(WP_Cache_Block::GetInstance(), 'init'));
 
-class WP_Cache_Block_Filters
-{
+interface iCache_Block_Unique_Key_Builder {
+	
 	/**
-	 * Filter checks if cache should be used for comments based on whether user has pending comment for post
+	 * Returns an MD5 hash representation of the Unique_Key
 	 *
-	 * @param bool $use_cache
-	 * @return bool
 	 */
-	public static function has_pending_comment($use_cache)
-	{
-		if(!$use_cache)
-		{
-			return $use_cache;
-		}
-
-		global $wpdb;
-		$wp_query = $_GLOBALS['wp_the_query'];
-		$post_id = $wp_query->posts[0]->ID;
-
-		$sql = false;
-		$num_pending = 0;
-		if(is_user_logged_in())
-		{
-			$sql = $wpdb->prepare("SELECT COUNT(comment_ID) FROM {$wpdb->comments} WHERE comment_post_ID = %d AND comment_approved = 0 AND user_id = %d",$post_id, wp_get_current_user()->ID);
-		}
-		else
-		{
-			$commenter = wp_get_current_commenter();
-			extract($commenter, EXTR_SKIP);
-			if(!empty($comment_author))
-			{
-				$sql = $wpdb->prepare("SELECT COUNT(comment_ID) FROM {$wpdb->comments} WHERE comment_post_ID = %d AND comment_approved = 0 AND comment_author = %s AND comment_author_email = %s", $post_id, wp_specialchars_decode($comment_author,ENT_QUOTES), $comment_author_email);
-			}
-		}
-		if($sql)
-		{
-			$num_pending = $wpdb->get_var($sql);
-		}
-		if($num_pending > 0)
-		{
-			$use_cache = false;
-		}
-		/*
-		Other options to potentially look into when deciding to cache comment list output:
-
-		option 1: dont use cache if user has any pending comments for this post on this page
-		upside: will cache all comment pages except for ones with pending comment
-		downside: could require a query for every pending comment a user has to find out if one exists on the current page.
-
-		option 2: dont cache if user has pending comment on this post, but use the cache, if exists, as long as its not the last page of comments
-		upside: will be able to use cache for most comments when not the last page.
-		downside: users may be confused if they sometimes see their pending comments on other pages and don't other times.
-		*/
-		return $use_cache;
-	}
-
-	/**
-	 * Filter to use if block should only be cached if user is not logged in.
-	 *
-	 * @param bool $use_cache
-	 * @return bool
-	 */
-	public static function user_logged_in($use_cache)
-	{
-		return $use_cache && !is_user_logged_in();
-	}
-
+	public function get_key_strjng();
 }
 
-add_filter('cache_block_start_comment_list', 'WP_Cache_Block_Filters::has_pending_comment');
+class Query_Unique_Key_Builder {
+	protected $key_string;
+	
+	public function __construct($query_vars = array()) {
+		$data = array();
+		foreach($query_vars as $query_var) {
+			if($value = get_query_var($query_var)) {
+				$data[$query_var] = $value;
+			}
+		}
+		if(count($data)) {
+			$this->key_string = md5(serialize($data));
+		}
+	}
+	
+	public function get_key_string() {
+		return $this->key_string;
+	}
+}
+
+class Pending_Comment_Unique_Key_Builder {
+	protected $key_string;
+
+	public function __construct() {
+		global $post_id;
+		
+		$this->key_string = '';
+		if(is_single()) {
+			$num_pending = 0;
+			if(is_user_logged_in())
+			{
+				$cache_key = 'pending_comments_'.get_current_user_id().'_'.$post_id;
+				$sql = $wpdb->prepare("SELECT COUNT(comment_ID) FROM {$wpdb->comments} WHERE comment_post_ID = %d AND comment_approved = 0 AND user_id = %d",$post_id, wp_get_current_user()->ID);
+			}
+			else
+			{
+				$commenter = wp_get_current_commenter();
+				extract($commenter, EXTR_SKIP);
+				if(!empty($comment_author))
+				{
+					$cache_key = 'pending_comments_'.$comment_author.'_'.$comment_author_email.'_'.$post_id;
+					$sql = $wpdb->prepare("SELECT COUNT(comment_ID) FROM {$wpdb->comments} WHERE comment_post_ID = %d AND comment_approved = 0 AND comment_author = %s AND comment_author_email = %s", $post_id, wp_specialchars_decode($comment_author,ENT_QUOTES), $comment_author_email);
+				} else {
+					return;
+				}
+			}
+			
+			if(isset($cache_key)) { 
+				$num_pending = get_transient($cache_key);
+				if($num_pending === false && $sql !== '') {
+					$num_pending = $wpdb->get_var($sql);
+					set_transient($cache_key, $num_pending);
+				}
+				if($num_pending > 0) { //they have a pending comment for this post
+					$this->key_string = md5(serialize(array('$cache_key'=> $num_pending)));
+				}	
+			}
+		}
+	}
+	
+	public function get_key_string() {
+		return $this->key_string;
+	}
+}
+function clear_pending_comment_count_cache($comment_id) {
+	$comment = get_comment($comment_id);
+	if(empty($comment->user_id)) {
+		$cache_key = 'pending_comments_'.$comment->comment_author.'_'.$comment->comment_author_email.'_'.$comment->comment_post_ID;
+	} else {
+		$cache_key = 'pending_comments_'.$comment->user_id.'_'.$comment->comment_post_ID;
+	}
+	delete_transient($cache_key);
+}
+add_action('wp_set_comment_status', 'clear_pending_comment_count_cache', 10, 1);
+add_action('wp_insert_comment', 'clear_pending_comment_count_cache', 10, 1);
+
+class Per_User_Unique_Key_Builder {
+	protected $key_string;
+	public function __construct() {
+		if(is_user_logged_in()) {
+			$this->key_string = 'user_id_'.get_current_user_id();
+		}	else {
+			$this->key_string = '';
+		}
+	}
+	public function get_key_string() {
+		return $this->key_string;
+	}	
+}
+
+function wp_cacheblock_start($blockname, $args = array()) {
+	return WP_Cache_Block::GetInstance()->start_block($blockname, $args);
+}
+
+function wp_cacheblock_end() {
+	return WP_Cache_Block::GetInstance()->end_block();
+}
