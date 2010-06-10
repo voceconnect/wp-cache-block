@@ -2,8 +2,8 @@
 Contributors: Michael Pretty
 Donate link: http://voceconnect.com/
 Tags: caching, block level, performance
-Requires at least: 2.5
-Tested up to: 2.8
+Requires at least: 2.8
+Tested up to: 3.0
 Stable tag: trunk
 
 Adds ability to globally cache certain segments of code.
@@ -16,6 +16,7 @@ WP Cache and some other caching plugins work amazingly well, however, their bene
 
 Requirements:
 
+*   WordPress 2.8 or higher
 *   "php5" - I'm a big proponent of dropping the php4 compatibility of WordPress due to the improved OO support.  Because of this, I prefer to write my plugins in php5 form in hopes to help push the community along.
 
 == Installation ==
