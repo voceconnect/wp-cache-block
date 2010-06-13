@@ -1,5 +1,5 @@
 === WP Cache Block ===
-Contributors: Michael Pretty
+Contributors: prettyboymp
 Donate link: http://voceconnect.com/
 Tags: caching, block level, performance
 Requires at least: 2.8
