@@ -1,7 +1,7 @@
 === WP Cache Block ===
 Contributors: prettyboymp
 Donate link: http://voceconnect.com/
-Tags: caching, block level, performance
+Tags: cache, caching, output caching, cache block, performance
 Requires at least: 2.8
 Tested up to: 3.0
 Stable tag: trunk
