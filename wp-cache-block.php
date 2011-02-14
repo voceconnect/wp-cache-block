@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 class WP_Cache_Block
 {
 	const CACHE_BLOCK_DEBUG = false;
-	const CACHE_FLAG_PREFIX = 'CACHE_BLOCK_FLAG';
+	const CACHE_FLAG_PREFIX = 'CBF';
 
 	static $instance = null;
 	private $output_stack;
@@ -61,12 +61,12 @@ class WP_Cache_Block
 			add_action('admin_menu', array($this, 'admin_menu'));
 		}
 	}
-	
+
 	public function admin_menu() {
 		$hook = add_options_page('WP Block Cache', 'WP Block Cache', 'manage_options', 'wp-cache-block', array($this, 'options_page'));
 		add_action('load-'.$hook, array($this, 'on_load_options_page'));
 	}
-	
+
 	public function on_load_options_page() {
 		if(isset($_POST['cache_block_nonce']) && wp_verify_nonce($_POST['cache_block_nonce'], 'flush_cache')) {
 			$this->clear_cache();
@@ -74,7 +74,7 @@ class WP_Cache_Block
 			die();
 		}
 	}
-	
+
 	public function options_page() {
 		if(isset($_GET['cleared'])) : ?>
 			<div id="message" class="updated">Cache has been cleared.</div>
@@ -88,8 +88,8 @@ class WP_Cache_Block
 		</div>
 		<?php
 	}
-	
-	
+
+
 	/**
 	 * Method to start a cache block segment.  The static method should be used in most situations.
 	 *
@@ -110,22 +110,22 @@ class WP_Cache_Block
 			'key_builders' => array(),
 			'expires' => 300
 		);
-		
+
 		$args = wp_parse_args($args, $defaults);
-		
+
 		if(!empty($args['unique_key'])) {
-			$unique_key = 'cb_'.$blockname.'_'.$args['unique_key'];
+			$unique_key = $blockname.'_'.$args['unique_key'];
 		} elseif(is_array($args['key_builders']) && count($args['key_builders']) > 0) {
 			$keys = array();
 			foreach ($args['key_builders'] as $key_builder){
 				$keys[] = $key_builder->get_key_string();
 			}
-			$unique_key = substr(md5(join('',$keys)), 0, 150);
-			
+			$unique_key = join('',$keys);
+
 		} else {
-			$unique_key = '';
+			$unique_key = $blockname;
 		}
-		$key = $this->cache_flag. $unique_key;
+		$key = $this->cache_flag. substr(md5($unique_key), 0, 30);
 		$block_data = array('key'=>$key, 'output' => false);
 
 		$block_data['output'] = get_transient($key);
@@ -204,7 +204,7 @@ class WP_Cache_Block
 		$this->cache_flag = get_option(self::CACHE_FLAG_PREFIX);
 		if(!$this->cache_flag)
 		{
-			$this->cache_flag = self::CACHE_FLAG_PREFIX . '_'. time();
+			$this->cache_flag = self::CACHE_FLAG_PREFIX . '_' . time() . '_';
 			update_option(self::CACHE_FLAG_PREFIX, $this->cache_flag);
 		}
 	}
@@ -212,7 +212,7 @@ class WP_Cache_Block
 add_action('init', array(WP_Cache_Block::GetInstance(), 'init'));
 
 interface iCache_Block_Unique_Key_Builder {
-	
+
 	/**
 	 * Returns an MD5 hash representation of the Unique_Key
 	 *
@@ -222,7 +222,7 @@ interface iCache_Block_Unique_Key_Builder {
 
 class Query_Unique_Key_Builder {
 	protected $key_string;
-	
+
 	public function __construct($query_vars = array()) {
 		$data = array();
 		foreach($query_vars as $query_var) {
@@ -234,7 +234,7 @@ class Query_Unique_Key_Builder {
 			$this->key_string = md5(serialize($data));
 		}
 	}
-	
+
 	public function get_key_string() {
 		return $this->key_string;
 	}
@@ -245,7 +245,7 @@ class Pending_Comment_Unique_Key_Builder {
 
 	public function __construct() {
 		global $post_id;
-		
+
 		$this->key_string = '';
 		if(is_single()) {
 			$num_pending = 0;
@@ -266,8 +266,8 @@ class Pending_Comment_Unique_Key_Builder {
 					return;
 				}
 			}
-			
-			if(isset($cache_key)) { 
+
+			if(isset($cache_key)) {
 				$num_pending = get_transient($cache_key);
 				if($num_pending === false && $sql !== '') {
 					$num_pending = $wpdb->get_var($sql);
@@ -275,11 +275,11 @@ class Pending_Comment_Unique_Key_Builder {
 				}
 				if($num_pending > 0) { //they have a pending comment for this post
 					$this->key_string = md5(serialize(array('$cache_key'=> $num_pending)));
-				}	
+				}
 			}
 		}
 	}
-	
+
 	public function get_key_string() {
 		return $this->key_string;
 	}
@@ -307,7 +307,7 @@ class Per_User_Unique_Key_Builder {
 	}
 	public function get_key_string() {
 		return $this->key_string;
-	}	
+	}
 }
 
 function wp_cacheblock_start($blockname, $args = array()) {
