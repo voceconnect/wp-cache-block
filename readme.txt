@@ -64,5 +64,8 @@ Probably not.  Full page rendering is the best solution for most sites.  This pl
 
 == Changelog ==
 
+= 0.1.1 =
+* Limited transient key length to 45 chars per http://core.trac.wordpress.org/ticket/15058
+* Fixing unique key when only a block name is provided.
 = 0.1.0 =
 * Initial release.

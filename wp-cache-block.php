@@ -2,7 +2,7 @@
 /*
 Plugin Name: WP Cache Block
 Description: Adds ability to globally cache certain segments of code.
-Version: 0.1.0
+Version: 0.1.1
 Author: Michael Pretty (voce connect)
 
 *******************************************************************
